@@ -1,0 +1,1 @@
+# Arkema_OCR
