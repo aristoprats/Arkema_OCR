@@ -3,13 +3,14 @@ from pdf2image import convert_from_path
 from PIL import Image
 import os
 import shutil
+import pandas as pd
 
 ###### GLOBAL VARS ######
 GLOBAL_poppler_path = r'dependencies\\poppler_home\\bin'
 GLOBAL_temp_path = r'temp'
 GLOBAL_archive_path = r'Archive'
 GLOBAL_production_path = r'To_Scan'
-GLOBAL_desired_headers = ['Functional Location', 'Equipment', 'Main Work Center', 'Oper. Short Text','Section','Partner Number']
+GLOBAL_desired_headers = ['ID#', 'EG-MAIN-001', 'Functional Location', 'Equipment', 'Main Work Center', 'Oper. Short Text','Section','Partner Number']
 #########################
 
 
@@ -17,19 +18,43 @@ GLOBAL_desired_headers = ['Functional Location', 'Equipment', 'Main Work Center'
 def run_precheck():
     directory_list = os.listdir()
 
+    # clean any pre-existing temp directory
     if GLOBAL_temp_path in directory_list:
         shutil.rmtree(GLOBAL_temp_path)
     os.mkdir(GLOBAL_temp_path)
 
+    # Create an archive directory if not present
     if GLOBAL_archive_path not in directory_list:
         os.mkdir(GLOBAL_archive_path)
     
+    # Create a production path if doesn't exist
+    #    also exits as this means no files are loaded
     if GLOBAL_production_path not in directory_list:
         os.mkdir(GLOBAL_production_path)
+        exit
     
+    # Scan for latest index version
+    list_existing_indexes = []
+    for file in os.listdir():
+        if '.xlsx' in file:
+            list_existing_indexes.append(int(file[9:-5]))
+    
+    next_ver = str(max(list_existing_indexes) + 1)
+    
+    return ('PM_Index_' + next_ver + '.xlsx')
+    
+
+    
+
+
 
 def run_cleanup():
     shutil.rmtree(GLOBAL_temp_path)
+    '''
+    for file in os.listdir(r'To_Scan'):
+        os.remove(file)
+
+    ''' #To Do: Remove this once testing finalized
 
 def gather_scannables():
     scannables = []
@@ -39,7 +64,7 @@ def gather_scannables():
     return scannables
 
 def create_jpgs(to_convert, scan_index=0, dpi=300):
-    converted = convert_from_path(pdf_path= GLOBAL_production_path + '\\' + to_convert, dpi=dpi, poppler_path=GLOBAL_poppler_path)
+    converted = convert_from_path(pdf_path=to_convert, dpi=dpi, poppler_path=GLOBAL_poppler_path)
     temp_filename = GLOBAL_temp_path + '\\' + 'temp_image_%d_.jpg' % scan_index
     converted[0].save(temp_filename, 'JPEG')
     return temp_filename
@@ -83,7 +108,7 @@ def parse_text(intake, archive_ID=-1):
     joined_text = rejoin_lines(intake)
     line_to_write = []
 
-    for header in GLOBAL_desired_headers:
+    for header in GLOBAL_desired_headers[2:]:
         located = False
         for line in joined_text:
             if header in line:
@@ -99,21 +124,34 @@ def parse_text(intake, archive_ID=-1):
 
     return line_to_write
 
+def list_to_dataframe(parsed_list):
+    # return pd.DataFrame(np.array(parsed_list).reshape(-1,len(parsed_list)), columns=GLOBAL_desired_headers)
+    return pd.DataFrame([parsed_list], columns=GLOBAL_desired_headers)
+
 
 
 def main():
 
-    run_precheck()
+    (output_excel) = run_precheck()
 
     production_list = gather_scannables()
-    
+
+
+
     scan_idx = 0
     for scannable in production_list:
+        To_Scan = GLOBAL_production_path + '\\' + scannable
+        new_destination = GLOBAL_archive_path + '\\' + str(scan_idx) + '.pdf'
+        shutil.copyfile(To_Scan, new_destination)
         scan_idx += 1
-        ocr_img = create_jpgs(scannable,scan_index=scan_idx)
+        ocr_img = create_jpgs(To_Scan,scan_index=scan_idx)
         raw_text = run_ocr(ocr_img)
         parsed = parse_text(raw_text)
-        print(parsed)
+        parsed_frame = list_to_dataframe(parsed)
+        parsed_frame.to_excel(output_excel, index=False)
+        
+        
+        
 
     
 
