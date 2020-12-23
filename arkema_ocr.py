@@ -4,6 +4,11 @@ from PIL import Image
 import os
 import shutil
 import pandas as pd
+import openpyxl
+from time import sleep
+
+#hidden dependencoes
+# openpyxl - pandas reading excel 
 
 ###### GLOBAL VARS ######
 GLOBAL_poppler_path = r'dependencies\\poppler_home\\bin'
@@ -11,9 +16,47 @@ GLOBAL_temp_path = r'temp'
 GLOBAL_archive_path = r'Archive'
 GLOBAL_production_path = r'To_Scan'
 GLOBAL_desired_headers = ['ID#', 'EG-MAIN-001', 'Functional Location', 'Equipment', 'Main Work Center', 'Oper. Short Text','Section','Partner Number']
+GLOBAL_excel_sheet_prefix = 'PM_Index_'
 #########################
 
+class Excel_to_write_df:
+    def __init__(self, last_excel):
+        self.new_name = GLOBAL_excel_sheet_prefix + str(last_excel + 1) + '.xlsx'
+        self._df = pd.read_excel(GLOBAL_excel_sheet_prefix + str(last_excel) + '.xlsx', engine='openpyxl')
+        self._locked = False
 
+    def get_last_idnum(self):
+        return int(self._df.tail(1)['ID#'])
+    
+    def get_lock_stats(self):
+        return self._lock
+    
+    def flip_lock(self):
+        self._locked = not self._locked
+        return self._locked
+
+    def update_primary_df(self, new_df_row):
+
+        # Poorly done way of managing shared resources :( 
+            # TO DO: revisit when understand multiprocessing and shared data management better
+        while self._locked:
+            sleep(2)
+        
+        self.flip_lock()
+        temp = pd.concat([self._df, new_df_row], ignore_index=True)
+        self._df = temp
+        self.flip_lock()
+        
+
+    def write_next_excel(self):
+        self._df.to_excel(self.new_name, index=False)
+
+    def display_df(self):
+        temp = self._df
+        return temp
+
+
+    
 
 def run_precheck():
     directory_list = os.listdir()
@@ -35,19 +78,13 @@ def run_precheck():
     
     # Scan for latest index version
     list_existing_indexes = []
+    len_to_ignore = len(GLOBAL_excel_sheet_prefix)
     for file in os.listdir():
         if '.xlsx' in file:
-            list_existing_indexes.append(int(file[9:-5]))
+            list_existing_indexes.append(int(file[len_to_ignore:-5]))
     
-    next_ver = str(max(list_existing_indexes) + 1)
+    return max(list_existing_indexes) #return most recent version#
     
-    return ('PM_Index_' + next_ver + '.xlsx')
-    
-
-    
-
-
-
 def run_cleanup():
     shutil.rmtree(GLOBAL_temp_path)
     '''
@@ -89,7 +126,7 @@ def rejoin_lines(char_array):
     return string_array
         
 def search_for_PM(intake):
-    found = 'FALSE'
+    found = False
 
     for line in intake:
         if 'EG-MAIN' in line:
@@ -117,28 +154,33 @@ def parse_text(intake, archive_ID=-1):
                     located = True
                 except:
                     pass
-        if not located:
+        if not located:          
             line_to_write.append('-')
 
+    # Implementation as a list
     line_to_write = [archive_ID] + search_for_PM(joined_text) + line_to_write
+
+    print(line_to_write)
 
     return line_to_write
 
 def list_to_dataframe(parsed_list):
     # return pd.DataFrame(np.array(parsed_list).reshape(-1,len(parsed_list)), columns=GLOBAL_desired_headers)
+
     return pd.DataFrame([parsed_list], columns=GLOBAL_desired_headers)
 
 
 
 def main():
 
-    (output_excel) = run_precheck()
+    last_ver = run_precheck()
+    next_df = Excel_to_write_df(last_ver)
 
     production_list = gather_scannables()
 
 
 
-    scan_idx = 0
+    scan_idx = next_df.get_last_idnum()
     for scannable in production_list:
         To_Scan = GLOBAL_production_path + '\\' + scannable
         new_destination = GLOBAL_archive_path + '\\' + str(scan_idx) + '.pdf'
@@ -146,19 +188,14 @@ def main():
         scan_idx += 1
         ocr_img = create_jpgs(To_Scan,scan_index=scan_idx)
         raw_text = run_ocr(ocr_img)
-        parsed = parse_text(raw_text)
+        parsed = parse_text(raw_text, scan_idx)
         parsed_frame = list_to_dataframe(parsed)
-        parsed_frame.to_excel(output_excel, index=False)
-        
-        
-        
-
+        next_df.update_primary_df(parsed_frame)
+        #print(next_df.display_df())
     
 
-
     
-        
-    
+    next_df.write_next_excel()      
     
     run_cleanup()
 
