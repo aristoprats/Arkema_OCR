@@ -101,7 +101,7 @@ def gather_scannables():
     return scannables
 
 def create_jpgs(to_convert, scan_index=0, dpi=300):
-    converted = convert_from_path(pdf_path=to_convert, dpi=dpi, poppler_path=GLOBAL_poppler_path)
+    converted = convert_from_path(pdf_path=to_convert, dpi=dpi, poppler_path=GLOBAL_poppler_path, thread_count=3)
     temp_filename = GLOBAL_temp_path + '\\' + 'temp_image_%d_.jpg' % scan_index
     converted[0].save(temp_filename, 'JPEG')
     return temp_filename
@@ -160,8 +160,6 @@ def parse_text(intake, archive_ID=-1):
     # Implementation as a list
     line_to_write = [archive_ID] + search_for_PM(joined_text) + line_to_write
 
-    print(line_to_write)
-
     return line_to_write
 
 def list_to_dataframe(parsed_list):
@@ -191,7 +189,6 @@ def main():
         parsed = parse_text(raw_text, scan_idx)
         parsed_frame = list_to_dataframe(parsed)
         next_df.update_primary_df(parsed_frame)
-        #print(next_df.display_df())
     
 
     
